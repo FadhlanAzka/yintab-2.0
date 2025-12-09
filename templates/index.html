@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <title>YINTAB</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0f172a; /* dark navy */
+        color: #e5e7eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      .container {
+        background: #111827;
+        border-radius: 16px;
+        width: 420px;
+        height: 420px; /* kira-kira square */
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+        padding: 24px 28px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 8px;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 24px;
+        letter-spacing: 0.08em;
+      }
+
+      .header p {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: #9ca3af;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 8px;
+        flex: 1;
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+      }
+
+      label {
+        color: #d1d5db;
+      }
+
+      input[type="file"],
+      select {
+        font-size: 12px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        border: 1px solid #374151;
+        background: #020617;
+        color: #e5e7eb;
+      }
+
+      input[type="file"]::file-selector-button {
+        border: none;
+        margin-right: 8px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: #1d4ed8;
+        color: #e5e7eb;
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      input[type="file"]::file-selector-button:hover {
+        background: #2563eb;
+      }
+
+      select:focus,
+      input[type="file"]:focus-visible {
+        outline: 1px solid #60a5fa;
+        outline-offset: 1px;
+      }
+
+      .footer {
+        margin-top: 8px;
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      button[type="submit"] {
+        padding: 8px 16px;
+        font-size: 13px;
+        border-radius: 999px;
+        border: none;
+        background: #22c55e;
+        color: #022c22;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.1s ease;
+        box-shadow: 0 10px 20px rgba(34, 197, 94, 0.35);
+      }
+
+      button[type="submit"]:hover {
+        background: #16a34a;
+        transform: translateY(-1px);
+        box-shadow: 0 14px 30px rgba(34, 197, 94, 0.45);
+      }
+
+      button[type="submit"]:active {
+        transform: translateY(0);
+        box-shadow: 0 6px 14px rgba(34, 197, 94, 0.35);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container" id="dropzone">
+      <div class="header">
+        <h1>YINTAB</h1>
+        <p>Monophonic Tablature Estimation</p>
+      </div>
+
+      <form action="{{ url_for('run_route') }}" method="post" enctype="multipart/form-data">
+        <div class="form-group">
+          <label for="wav-file">
+            WAV file
+            <span style="display:block;font-size:11px;color:#9ca3af;margin-top:2px;">
+              Klik untuk memilih file atau drag &amp; drop ke kotak ini
+            </span>
+          </label>
+          <input id="wav-file" type="file" name="wav_file" accept=".wav" required>
+        </div>
+
+        <div class="footer">
+          <button type="submit">Run Inference</button>
+        </div>
+      </form>
+    </div>
+
+    <script>
+      // Drag & drop support: drop ke area container -> set ke input file
+      (function () {
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('wav-file');
+        if (!dropzone || !fileInput) return;
+
+        const preventDefaults = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        };
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+          dropzone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+          const dt = e.dataTransfer;
+          if (!dt || !dt.files || !dt.files.length) return;
+          // Ambil hanya file pertama
+          const fileList = dt.files;
+          // Buat DataTransfer baru supaya bisa assign ke input.files
+          const dataTransfer = new DataTransfer();
+          dataTransfer.items.add(fileList[0]);
+          fileInput.files = dataTransfer.files;
+        });
+      })();
+    </script>
+  </body>
+</html>
