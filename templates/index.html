@@ -1,19 +1,59 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="id" data-theme="dark">
   <head>
-    <meta charset="utf-8">
+    <meta charset="utf-8" />
     <title>YINTAB</title>
     <style>
-      * {
-        box-sizing: border-box;
+      * { box-sizing: border-box; }
+
+      /* ===== Theme tokens (default = dark) ===== */
+      :root {
+        --bg: #0f172a;              /* body background */
+        --text: #e5e7eb;            /* main text */
+        --muted: #9ca3af;           /* muted text */
+        --card: #111827;            /* container */
+        --input-bg: #020617;        /* input/pre bg */
+        --border: #374151;          /* input border */
+        --outline: #60a5fa;         /* focus outline */
+        --file-btn: #1d4ed8;        /* file selector btn */
+        --file-btn-hover: #2563eb;
+        --submit: #22c55e;
+        --submit-hover: #16a34a;
+        --submit-text: #022c22;
+        --shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+        --submit-shadow: 0 10px 20px rgba(34, 197, 94, 0.35);
+        --submit-shadow-hover: 0 14px 30px rgba(34, 197, 94, 0.45);
+        --toggle-bg: #0b1220;
+        --toggle-border: #1f2937;
+      }
+
+      /* Light theme overrides */
+      html[data-theme="light"] {
+        --bg: #f3f4f6;
+        --text: #111827;
+        --muted: #6b7280;
+        --card: #ffffff;
+        --input-bg: #f9fafb;
+        --border: #d1d5db;
+        --outline: #2563eb;
+        --file-btn: #1d4ed8;
+        --file-btn-hover: #1e40af;
+        --submit: #22c55e;
+        --submit-hover: #16a34a;
+        --submit-text: #052e16;
+        --shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+        --submit-shadow: 0 10px 20px rgba(34, 197, 94, 0.20);
+        --submit-shadow-hover: 0 14px 30px rgba(34, 197, 94, 0.28);
+        --toggle-bg: #eef2ff;
+        --toggle-border: #d1d5db;
       }
 
       body {
         margin: 0;
         padding: 0;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #0f172a; /* dark navy */
-        color: #e5e7eb;
+        background: var(--bg);
+        color: var(--text);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -21,15 +61,16 @@
       }
 
       .container {
-        background: #111827;
+        background: var(--card);
         border-radius: 16px;
         width: 420px;
-        height: 420px; /* kira-kira square */
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+        height: 420px;
+        box-shadow: var(--shadow);
         padding: 24px 28px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
+        position: relative; /* for theme toggle positioning */
       }
 
       .header {
@@ -46,7 +87,7 @@
       .header p {
         margin: 4px 0 0;
         font-size: 12px;
-        color: #9ca3af;
+        color: var(--muted);
       }
 
       form {
@@ -64,18 +105,16 @@
         font-size: 13px;
       }
 
-      label {
-        color: #d1d5db;
-      }
+      label { color: var(--text); }
 
       input[type="file"],
       select {
         font-size: 12px;
         padding: 6px 8px;
         border-radius: 8px;
-        border: 1px solid #374151;
-        background: #020617;
-        color: #e5e7eb;
+        border: 1px solid var(--border);
+        background: var(--input-bg);
+        color: var(--text);
       }
 
       input[type="file"]::file-selector-button {
@@ -83,19 +122,19 @@
         margin-right: 8px;
         padding: 4px 8px;
         border-radius: 6px;
-        background: #1d4ed8;
+        background: var(--file-btn);
         color: #e5e7eb;
         cursor: pointer;
         font-size: 12px;
       }
 
       input[type="file"]::file-selector-button:hover {
-        background: #2563eb;
+        background: var(--file-btn-hover);
       }
 
       select:focus,
       input[type="file"]:focus-visible {
-        outline: 1px solid #60a5fa;
+        outline: 1px solid var(--outline);
         outline-offset: 1px;
       }
 
@@ -110,28 +149,62 @@
         font-size: 13px;
         border-radius: 999px;
         border: none;
-        background: #22c55e;
-        color: #022c22;
+        background: var(--submit);
+        color: var(--submit-text);
         font-weight: 600;
         cursor: pointer;
         transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.1s ease;
-        box-shadow: 0 10px 20px rgba(34, 197, 94, 0.35);
+        box-shadow: var(--submit-shadow);
       }
 
       button[type="submit"]:hover {
-        background: #16a34a;
+        background: var(--submit-hover);
         transform: translateY(-1px);
-        box-shadow: 0 14px 30px rgba(34, 197, 94, 0.45);
+        box-shadow: var(--submit-shadow-hover);
       }
 
       button[type="submit"]:active {
         transform: translateY(0);
-        box-shadow: 0 6px 14px rgba(34, 197, 94, 0.35);
+        box-shadow: var(--submit-shadow);
+      }
+
+      /* ===== Theme toggle button ===== */
+      .theme-toggle {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        border: 1px solid var(--toggle-border);
+        background: var(--toggle-bg);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        user-select: none;
+      }
+
+      .theme-toggle:focus-visible {
+        outline: 1px solid var(--outline);
+        outline-offset: 2px;
+      }
+
+      .theme-icon {
+        font-size: 13px;
+        line-height: 1;
       }
     </style>
   </head>
+
   <body>
     <div class="container" id="dropzone">
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle theme" aria-pressed="false">
+        <span class="theme-icon" id="theme-icon">🌙</span>
+        <span id="theme-label">Dark</span>
+      </button>
+
       <div class="header">
         <h1>YINTAB</h1>
         <p>Monophonic Tablature Estimation</p>
@@ -141,24 +214,63 @@
         <div class="form-group">
           <label for="wav-file">
             WAV file
-            <span style="display:block;font-size:11px;color:#9ca3af;margin-top:2px;">
+            <span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">
               Klik untuk memilih file atau drag &amp; drop ke kotak ini
             </span>
           </label>
-          <input id="wav-file" type="file" name="wav_file" accept=".wav" required>
+          <input id="wav-file" type="file" name="wav_file" accept=".wav" required />
         </div>
 
         <div class="footer">
-          <button type="submit">Run Inference</button>
+          <button type="submit">Generate Tab</button>
         </div>
       </form>
     </div>
 
     <script>
-      // Drag & drop support: drop ke area container -> set ke input file
+      // ===== Theme (Light/Dark) =====
       (function () {
-        const dropzone = document.getElementById('dropzone');
-        const fileInput = document.getElementById('wav-file');
+        const STORAGE_KEY = "yintab_theme";
+        const root = document.documentElement;
+        const btn = document.getElementById("theme-toggle");
+        const icon = document.getElementById("theme-icon");
+        const label = document.getElementById("theme-label");
+
+        const systemPref = () =>
+          window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+            ? "light"
+            : "dark";
+
+        const getTheme = () => {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved === "light" || saved === "dark") return saved;
+          return systemPref();
+        };
+
+        const applyTheme = (theme) => {
+          root.setAttribute("data-theme", theme);
+          const isLight = theme === "light";
+          if (btn) btn.setAttribute("aria-pressed", String(isLight));
+          if (icon) icon.textContent = isLight ? "☀️" : "🌙";
+          if (label) label.textContent = isLight ? "Light" : "Dark";
+        };
+
+        applyTheme(getTheme());
+
+        if (btn) {
+          btn.addEventListener("click", () => {
+            const current = root.getAttribute("data-theme") || "dark";
+            const next = current === "light" ? "dark" : "light";
+            localStorage.setItem(STORAGE_KEY, next);
+            applyTheme(next);
+          });
+        }
+      })();
+
+      // ===== Drag & drop support =====
+      (function () {
+        const dropzone = document.getElementById("dropzone");
+        const fileInput = document.getElementById("wav-file");
         if (!dropzone || !fileInput) return;
 
         const preventDefaults = (e) => {
@@ -166,18 +278,16 @@
           e.stopPropagation();
         };
 
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
           dropzone.addEventListener(eventName, preventDefaults, false);
         });
 
-        dropzone.addEventListener('drop', (e) => {
+        dropzone.addEventListener("drop", (e) => {
           const dt = e.dataTransfer;
           if (!dt || !dt.files || !dt.files.length) return;
-          // Ambil hanya file pertama
-          const fileList = dt.files;
-          // Buat DataTransfer baru supaya bisa assign ke input.files
+
           const dataTransfer = new DataTransfer();
-          dataTransfer.items.add(fileList[0]);
+          dataTransfer.items.add(dt.files[0]);
           fileInput.files = dataTransfer.files;
         });
       })();

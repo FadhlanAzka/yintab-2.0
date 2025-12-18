@@ -5,11 +5,15 @@ app_web.py — Flask web interface for YINTab (YIN → LSTM → TAB)
 Versi ini:
 - token index CSV, model, dan device di-hardcode
 - Form web hanya upload WAV
+- MIDI di-generate dari CSV (monophonic, tanpa kolom time)
+- NEW: MIDI dirender ke WAV (FluidSynth + SoundFont) agar suara konsisten (web = file explorer)
 """
 
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -25,6 +29,9 @@ from flask import (
     url_for,
     abort,
 )
+
+# MIDI generator dari CSV (monophonic)
+from tab_midi import csv_notes_to_midi_file
 
 # Low-level project modules
 from audio_loader import load_audio
@@ -69,16 +76,65 @@ app = Flask(
 )
 
 # ==== HARDCODED PATHS & DEVICE ====
-# Sesuaikan path berikut dengan struktur projek kamu
 TOKEN_INDEX_CSV = BASE_DIR / "tokens" / "token index v2.csv"
-# Contoh: BASE_DIR / "tokens" / "token index v2.csv"
-
 MODEL_PATH = BASE_DIR / "models" / "last.jit"
-# Ganti ini sesuai folder model-mu, misal:
-# MODEL_PATH = BASE_DIR / "artifacts" / "my_run" / "best.jit"
-
 DEFAULT_DEVICE = "auto"  # "auto" / "cpu" / "cuda"
 
+# ==== NEW: SoundFont & fluidsynth config ====
+# Letakkan file .sf2 di sini (buat folder assets kalau belum ada)
+SOUNDFONT_PATH = BASE_DIR / "assets" / "FluidR3_GM.sf2"
+FLUIDSYNTH_BIN = r"C:\Program Files\fluidsynth-v2.5.1-win10-x64-cpp11\bin\fluidsynth.exe"
+RENDER_SAMPLE_RATE = 44100
+
+
+def _midi_to_wav(
+    midi_path: Path,
+    wav_out_path: Path,
+    soundfont_path: Path = SOUNDFONT_PATH,
+    sample_rate: int = RENDER_SAMPLE_RATE,
+) -> Optional[Path]:
+    midi_path = Path(midi_path)
+    wav_out_path = Path(wav_out_path)
+    soundfont_path = Path(soundfont_path)
+    fluidsynth_exe = Path(FLUIDSYNTH_BIN)
+
+    if not midi_path.exists():
+        print(f"[WARN] MIDI tidak ditemukan untuk render: {midi_path}")
+        return None
+
+    if not soundfont_path.exists():
+        print(f"[WARN] SoundFont (.sf2) tidak ditemukan: {soundfont_path}")
+        return None
+
+    if not fluidsynth_exe.exists():
+        print(f"[WARN] fluidsynth.exe tidak ditemukan: {fluidsynth_exe}")
+        return None
+
+    wav_out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        str(fluidsynth_exe),
+        "-q",
+        "-ni",
+        "-F", str(wav_out_path),
+        "-r", str(int(sample_rate)),
+        str(soundfont_path),
+        str(midi_path),
+    ]
+
+    try:
+        print(f"[INFO] Rendering MIDI→WAV: {wav_out_path}")
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"[WARN] Render MIDI→WAV gagal (fluidsynth): {e}")
+        return None
+
+    if not wav_out_path.exists() or wav_out_path.stat().st_size == 0:
+        print(f"[WARN] Render selesai tapi file WAV tidak valid: {wav_out_path}")
+        return None
+
+    print(f"[OK] Render MIDI→WAV sukses: {wav_out_path}")
+    return wav_out_path
 
 # -------------------------------------------------
 # Core inference function (dipakai route Flask)
@@ -93,10 +149,9 @@ def run_inference(
     """
     Jalankan YIN Pipeline #14 + LSTM mapper untuk satu file WAV.
 
-    Semua output (CSV, TAB, PNG) disimpan langsung di base_out_dir,
+    Semua output (CSV, TAB, PNG, MIDI, MIDI_WAV) disimpan langsung di base_out_dir,
     TANPA subfolder nama WAV. Ini supaya gampang di-serve via /static.
     """
-    # Output directory = base_out_dir (tanpa subfolder tambahan)
     out_dir = base_out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -138,7 +193,7 @@ def run_inference(
     print("[INFO] Menjalankan Pipeline #14 (YIN)...")
     stable_notes, stable_f0, stable_midi, sample_times = run_pipeline14(y, sr)
 
-    # Visualisasi (PNG saja, tanpa player pygame)
+    # Visualisasi (PNG saja)
     duration = len(y) / sr
     f0_vis = stable_f0
     notes_vis = np.asarray(
@@ -150,8 +205,6 @@ def run_inference(
 
     viz_path: Optional[Path] = None
     try:
-        # save_visualization adalah factory:
-        #   save_visualization(out_dir)(audio_path, duration, sr, tempo, ...)
         save_visualization(out_dir)(
             audio_path=str(wav_path),
             duration=duration,
@@ -181,34 +234,86 @@ def run_inference(
 
     # DataFrame awal (hz, note, midi)
     df0 = _build_dataframe_from_stable(stable_f0, stable_notes, stable_midi)
+
+    # Prepare default output paths
+    out_csv = out_dir / f"{wav_stem}_lstm_mapped.csv"
+    out_midi: Optional[Path] = None
+    out_midi_wav: Optional[Path] = None
+
     if len(df0) == 0:
         print(f"[SKIP] {wav_path.name}: no valid notes")
-        out_csv = out_dir / f"{wav_stem}_lstm_mapped.csv"
         pd.DataFrame(
             columns=["hz", "note", "midi", "string", "fret", "token_idx"],
         ).to_csv(out_csv, index=False, encoding="utf-8-sig")
         print(f"[OK] Empty CSV disimpan ke: {out_csv}")
+
+        # MIDI dari CSV (monophonic; tanpa time)
+        try:
+            out_midi = out_dir / f"{wav_stem}_lstm_mapped.mid"
+            csv_notes_to_midi_file(
+                csv_path=out_csv,
+                out_mid_path=out_midi,
+                notes_per_second=2.0,
+                midi_col="midi",
+                rest_policy="keep",
+            )
+            print(f"[OK] MIDI disimpan: {out_midi}")
+        except Exception as e:
+            print(f"[WARN] Gagal membuat MIDI dari CSV: {e}")
+            out_midi = None
+
+        # NEW: render MIDI -> WAV (konsisten suara)
+        if out_midi is not None:
+            out_midi_wav = _midi_to_wav(
+                midi_path=out_midi,
+                wav_out_path=out_dir / f"{wav_stem}_lstm_mapped_render.wav",
+            )
+
         return {
             "out_dir": out_dir,
             "csv": out_csv,
             "tab": None,
             "viz": viz_path,
+            "midi": out_midi,
+            "midi_wav": out_midi_wav,
         }
 
     # Collapse sustains
     df = _collapse_to_sustains(df0)
     if len(df) == 0:
         print(f"[SKIP] {wav_path.name}: no sustained notes setelah RLE")
-        out_csv = out_dir / f"{wav_stem}_lstm_mapped.csv"
         pd.DataFrame(
             columns=["hz", "note", "midi", "string", "fret", "token_idx"],
         ).to_csv(out_csv, index=False, encoding="utf-8-sig")
         print(f"[OK] Empty CSV disimpan ke: {out_csv}")
+
+        try:
+            out_midi = out_dir / f"{wav_stem}_lstm_mapped.mid"
+            csv_notes_to_midi_file(
+                csv_path=out_csv,
+                out_mid_path=out_midi,
+                notes_per_second=2.0,
+                midi_col="midi",
+                rest_policy="keep",
+            )
+            print(f"[OK] MIDI disimpan: {out_midi}")
+        except Exception as e:
+            print(f"[WARN] Gagal membuat MIDI dari CSV: {e}")
+            out_midi = None
+
+        if out_midi is not None:
+            out_midi_wav = _midi_to_wav(
+                midi_path=out_midi,
+                wav_out_path=out_dir / f"{wav_stem}_lstm_mapped_render.wav",
+            )
+
         return {
             "out_dir": out_dir,
             "csv": out_csv,
             "tab": None,
             "viz": viz_path,
+            "midi": out_midi,
+            "midi_wav": out_midi_wav,
         }
 
     # LSTM mapping
@@ -218,15 +323,36 @@ def run_inference(
         model=model,
         token_index_df=token_index_df,
         device=device,
-        use_pitch_mask=True,  # auto-disable kalau token_index tidak punya kolom 'midi'
+        use_pitch_mask=True,
     )
 
     # Simpan CSV
     cols = ["hz", "note", "midi", "string", "fret", "token_idx"]
     cols = [c for c in cols if c in df_out.columns]
-    out_csv = out_dir / f"{wav_stem}_lstm_mapped.csv"
     df_out[cols].to_csv(out_csv, index=False, encoding="utf-8-sig")
     print(f"[OK] CSV LSTM-mapped disimpan: {out_csv}")
+
+    # MIDI dari CSV
+    try:
+        out_midi = out_dir / f"{wav_stem}_lstm_mapped.mid"
+        csv_notes_to_midi_file(
+            csv_path=out_csv,
+            out_mid_path=out_midi,
+            notes_per_second=2.0,
+            midi_col="midi",
+            rest_policy="keep",
+        )
+        print(f"[OK] MIDI disimpan: {out_midi}")
+    except Exception as e:
+        print(f"[WARN] Gagal membuat MIDI dari CSV: {e}")
+        out_midi = None
+
+    # NEW: render MIDI -> WAV (konsisten suara)
+    if out_midi is not None:
+        out_midi_wav = _midi_to_wav(
+            midi_path=out_midi,
+            wav_out_path=out_dir / f"{wav_stem}_lstm_mapped_render.wav",
+        )
 
     # ASCII TAB
     out_tab: Optional[Path] = None
@@ -236,8 +362,7 @@ def run_inference(
             frets = df_out["fret"].tolist()
             tab_txt = render_ascii_tab(strings, frets, width_pad=1)
             out_tab = out_dir / f"{wav_stem}_lstm_tab.txt"
-            with open(out_tab, "w", encoding="utf-8") as f:
-                f.write(tab_txt)
+            out_tab.write_text(tab_txt, encoding="utf-8")
             print(f"[OK] ASCII tablature LSTM disimpan: {out_tab}")
         except Exception as e:
             print(f"[WARN] Gagal membuat ASCII tablature LSTM: {e}")
@@ -251,6 +376,8 @@ def run_inference(
         "csv": out_csv,
         "tab": out_tab,
         "viz": viz_path,
+        "midi": out_midi,
+        "midi_wav": out_midi_wav,
     }
 
 
@@ -258,9 +385,6 @@ def run_inference(
 # Helper: run_id & manifest
 # -------------------------------------------------
 def _new_run_dir() -> Path:
-    """
-    Buat folder baru di static/results/<run_id>
-    """
     now_str = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     run_dir = RESULTS_DIR / now_str
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -278,6 +402,8 @@ def _save_manifest(
         "csv": artifacts.get("csv").name if artifacts.get("csv") else None,
         "tab": artifacts.get("tab").name if artifacts.get("tab") else None,
         "viz": artifacts.get("viz").name if artifacts.get("viz") else None,
+        "midi": artifacts.get("midi").name if artifacts.get("midi") else None,
+        "midi_wav": artifacts.get("midi_wav").name if artifacts.get("midi_wav") else None,  # NEW
     }
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2),
@@ -290,8 +416,7 @@ def _load_manifest(run_id: str) -> Dict[str, Optional[str]]:
     manifest_path = run_dir / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"manifest.json not found for run_id={run_id}")
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    return data
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
 # -------------------------------------------------
@@ -299,39 +424,31 @@ def _load_manifest(run_id: str) -> Dict[str, Optional[str]]:
 # -------------------------------------------------
 @app.route("/", methods=["GET"])
 def index():
-    """
-    Tampilkan halaman form upload.
-    """
     return render_template("index.html")
 
 
 @app.route("/run", methods=["POST"])
 def run_route():
-    """
-    Terima upload WAV, jalankan inference dengan token index & model hardcoded,
-    lalu redirect ke halaman hasil.
-    """
     wav_file = request.files.get("wav_file")
-
     if not wav_file or wav_file.filename == "":
         abort(400, "WAV file is required")
 
-    # Pastikan file hardcoded tersedia
     if not TOKEN_INDEX_CSV.exists():
         abort(500, f"Token index CSV tidak ditemukan: {TOKEN_INDEX_CSV}")
     if not MODEL_PATH.exists():
         abort(500, f"Model file tidak ditemukan: {MODEL_PATH}")
 
-    # 1) Buat run dir
+    # Optional: jangan abort kalau soundfont tidak ada (kita fallback: tetap ada MIDI)
+    if not SOUNDFONT_PATH.exists():
+        print(f"[WARN] SoundFont tidak ditemukan: {SOUNDFONT_PATH} (render MIDI→WAV akan di-skip)")
+
     run_dir = _new_run_dir()
     run_id = run_dir.name
 
-    # 2) Simpan WAV ke disk (nama WAV dipertahankan)
     wav_name = Path(wav_file.filename).name
     wav_path = run_dir / wav_name
     wav_file.save(str(wav_path))
 
-    # 3) Jalankan inference (blocking) dengan konfigurasi hardcoded
     artifacts = run_inference(
         wav_path=wav_path,
         base_out_dir=run_dir,
@@ -340,18 +457,12 @@ def run_route():
         device_str=DEFAULT_DEVICE,
     )
 
-    # 4) Simpan manifest untuk halaman hasil
     _save_manifest(run_dir, wav_path, artifacts)
-
-    # 5) Redirect ke /result/<run_id>
     return redirect(url_for("result", run_id=run_id))
 
 
 @app.route("/result/<run_id>", methods=["GET"])
 def result(run_id: str):
-    """
-    Tampilkan visualisasi + link download + preview CSV/TAB untuk run_id tertentu.
-    """
     try:
         manifest = _load_manifest(run_id)
     except FileNotFoundError:
@@ -359,8 +470,7 @@ def result(run_id: str):
 
     run_dir = RESULTS_DIR / run_id
 
-    # Build URLs untuk static files
-    wav_url = csv_url = tab_url = viz_url = None
+    wav_url = csv_url = tab_url = viz_url = midi_url = midi_wav_url = None
 
     if manifest.get("wav"):
         wav_url = url_for("static", filename=f"results/{run_id}/{manifest['wav']}")
@@ -370,8 +480,11 @@ def result(run_id: str):
         tab_url = url_for("static", filename=f"results/{run_id}/{manifest['tab']}")
     if manifest.get("viz"):
         viz_url = url_for("static", filename=f"results/{run_id}/{manifest['viz']}")
+    if manifest.get("midi"):
+        midi_url = url_for("static", filename=f"results/{run_id}/{manifest['midi']}")
+    if manifest.get("midi_wav"):  # NEW
+        midi_wav_url = url_for("static", filename=f"results/{run_id}/{manifest['midi_wav']}")
 
-    # Baca isi CSV & TAB untuk ditampilkan di halaman
     csv_text = None
     tab_text = None
 
@@ -398,6 +511,8 @@ def result(run_id: str):
         csv_url=csv_url,
         tab_url=tab_url,
         viz_url=viz_url,
+        midi_url=midi_url,
+        midi_wav_url=midi_wav_url,  # NEW
         csv_text=csv_text,
         tab_text=tab_text,
     )
@@ -405,14 +520,10 @@ def result(run_id: str):
 
 @app.route("/health", methods=["GET"])
 def health():
-    """
-    Endpoint sederhana untuk cek server hidup.
-    """
     return {"status": "ok"}
 
 
 def main():
-    # Untuk development lokal
     app.run(debug=True, host="0.0.0.0", port=5000)
 
 
